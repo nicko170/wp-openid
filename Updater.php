@@ -6,7 +6,7 @@ class Updater
     private array $plugin;
     private string $basename;
     private bool $active;
-    private string $repository;
+    private ?string $repository;
 
 
     public static function make(): self
@@ -21,9 +21,11 @@ class Updater
         $this->basename = plugin_basename($this->file);
         $this->active = is_plugin_active($this->basename);
 
-        add_filter('pre_set_site_transient_update_plugins', [$this, 'modify_transient'], 10, 1);
-        add_filter('plugins_api', [$this, 'plugin_popup'], 10, 3);
-        add_filter('upgrader_post_install', [$this, 'after_install'], 10, 3);
+        if ($this->repository) {
+            add_filter('pre_set_site_transient_update_plugins', [$this, 'modify_transient'], 10, 1);
+            add_filter('plugins_api', [$this, 'plugin_popup'], 10, 3);
+            add_filter('upgrader_post_install', [$this, 'after_install'], 10, 3);
+        }
 
         return $this;
     }
@@ -141,7 +143,7 @@ class Updater
                 'plugin' => $this->basename,
                 'new_version' => $response_version,
                 'url' => $response['url'],
-                'package' => $response['zipball_url'],
+                'package' => "https://github.com/" . $this->repository . "/releases/" . $response_version . "/download/wp-openid.zip",
                 'icons' => array(),
                 'banners' => array(),
                 'banners_rtl' => array(),
