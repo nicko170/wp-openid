@@ -1,13 +1,41 @@
-# WP-Okta
+# WP-OpenID
 
-A WordPress plugin to authenticate users via Okta. This plugin scratches a very specific itch, and I do not want to
-use other OpenID Connect plugins because they are too complicated and/or too opinionated. This plugin is very simple
-and does not do anything other than authenticate users via Okta (technically, any compliant OpenID provider).
+A WordPress plugin to authenticate users via a OpenID Provider. This plugin scratches a very specific itch, and I do not
+want to use other OpenID Connect plugins because they are too complicated and/or too opinionated. This plugin is very
+simple and does not do anything other than authenticate users via an OpenID Provider.
+
+This plugin has been tested with both Keycloak and Okta, but should work with any OpenID Connect provider that supports
+the Authorization Code flow with PKCE.
+
+![The WordPress Login Page](images/login_page.png?raw=true)
 
 ## Installation
 
-Download the plugin from the Releases page, and upload it to your WordPress site. Activate the plugin, and then
-configure the plugin via the Settings > Okta page.
+1. Download the latest release
+   from [GitHub Releases](https://github.com/nicko170/wp-openid/releases/latest/download/wp-openid.zip)
+2. In WordPress, go to **Plugins** > **Add New** > **Upload Plugin** and upload the zip file.
+3. Activate the plugin.
+4. A new **OpenID** menu item will appear in the WordPress admin Settings menu.
+5. Follow the instructions on the Settings page to configure the plugin.
+
+## Setting up Keycloak
+
+1. If you don't already have a Keycloak
+   instance, [you can run it up in Docker](https://www.keycloak.org/guides#getting-started)
+2. Sign in to your Keycloak instance with your administrator account.
+3. From the Admin dashboard, go to **Clients** > **Create**.
+4. Enter the following values:
+    - **Client Type**: OpenID Connect
+    - **Client ID**: wordpress
+    - **Name**: WordPress
+
+5. Click **Next**, and enable Client Authentication. You can leave the other options as their defaults.
+6. Click **Save**, and set your URLs:
+    - **Root URL**: `https://example.com/`
+    - **Valid Redirect URIs**: `https://example.com/index.php?rest_route=/okta/callback`
+    - **Admin URL**: `https://example.com/wp-admin`
+    - The other URLs can be left as their defaults.
+7. Click **Save**, and copy the **Client ID** and **Client Secret** values from the **Credentials** tab.
 
 ## Setting up Okta
 
@@ -32,39 +60,69 @@ configure the plugin via the Settings > Okta page.
 
 The plugin requires the following configuration options:
 
-1. Okta Domain URL (e.g. `https://example.okta.com`)
-2. Okta Client ID (e.g. `0oa1b2c3d4e5f6g7h8i9j`)
-3. Okta Client Secret (e.g. `0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j`)
+1. Metadata URL (e.g. `https://example.okta.com/.well-known/openid-configuration` or for
+   Keycloak `https://example.com/auth/realms/example/.well-known/openid-configuration`)
+2. Client ID (e.g. `0oa1b2c3d4e5f6g7h8i9j`)
+3. Client Secret (e.g. `0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j`)
 
-You can set these options via the Settings > Okta page in the WordPress admin, or in your `wp-config.php` file:
-
-```php
-define('WP_OKTA_DOMAIN', 'https://example.okta.com');
-define('WP_OKTA_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
-define('WP_OKTA_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
-```
-
-If a user already exists in WordPress we will just log them in. If a user does not exist in WordPress,
-we will create a new user with the same username as their Okta preferred username. The user will be assigned the Editor
-role by default, but this can be changed via the `wp_okta_default_role` filter.
-
-## Changing the default role
-
-The default role can be changed via the `wp_okta_default_role` filter. For example, to change the default role to
-Administrator:
-
-Shove this in your theme's `functions.php` file:
+You can set these options via the Settings > Okta page in the WordPress admin, or in your `wp-config.php` file if you
+don't want them to be editable by other users:
 
 ```php
-add_filter('wp_okta_default_role', function() {
-    return 'administrator';
-});
+define('WP_OKTA_DOMAIN', 'https://example.okta.com/.well-known/openid-configuration');
+define('WP_OKTA_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
+define('WP_OKTA_CLIENT_SECRET', '0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j');
 ```
+
+User matching is performed by matching:
+
+- The `sub` claim from the ID Token to the `openid_id` meta field on the user
+- The `email` claim from the ID Token to the `user_email` field on the user
+- The `preferred_username` claim from the ID Token to the `user_login` field on the user
+
+Id you have remapped the `email` or `preferred_username` claims, the mapping will be used for user matching, before
+falling back to `email` and `preferred_username` respectively.
+
+If a user is not found, a new user will be created with the attributes as mapped in the Settings > OpenID page.
+
+![Attribute Mapping](images/attribute_mapping.png?raw=true)
+
+## Mapping User Attributes
+
+You can map user attributes from your OpenID Provider to WordPress user meta fields using the Settings > OpenID page.
+
+The following WordPress user attributes are supported:
+
+- user_login: The user's login username
+- user_url: The user's website URL
+- user_email: The user's email address
+- display_name: The user's display name
+- nickname: The user's nickname
+- first_name: The user's first name
+- last_name: The user's last name
+
+The following OpenID Connect user attributes are supported:
+
+- sub: The user's unique identifier
+- preferred_username: The user's preferred username
+- name: The user's full name
+- given_name: The user's first name
+- family_name: The user's last name
+- middle_name: The user's middle name
+- nickname: The user's nickname
+- profile: The user's profile page
+- picture: The user's profile picture
+- website: The user's website
+- email: The user's email address
 
 ## Security
 
 If you discover any security related issues, please email me at [nick@npratley.net](mailto:nick@npratley.net) instead of
 using the issue tracker.
+
+## Credits
+
+- [Nick Pratley](https://github.com/nicko170)
 
 ## License
 
