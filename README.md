@@ -32,7 +32,7 @@ the Authorization Code flow with PKCE.
 5. Click **Next**, and enable Client Authentication. You can leave the other options as their defaults.
 6. Click **Save**, and set your URLs:
     - **Root URL**: `https://example.com/`
-    - **Valid Redirect URIs**: `https://example.com/index.php?rest_route=/okta/callback`
+    - **Valid Redirect URIs**: `https://example.com/index.php?rest_route=/openid/callback`
     - **Admin URL**: `https://example.com/wp-admin`
     - The other URLs can be left as their defaults.
 7. Click **Save**, and copy the **Client ID** and **Client Secret** values from the **Credentials** tab.
@@ -47,14 +47,14 @@ the Authorization Code flow with PKCE.
 5. Enter the following values:
     - **Name**: WordPress (or whatever, I don't care)
     - **Grant type**: Authorization Code
-    - **Sign-in redirect URIs**: `https://example.com/index.php?rest_route=/okta/callback`
+    - **Sign-in redirect URIs**: `https://example.com/index.php?rest_route=/openid/callback`
     - **Sign-out redirect URIs**: `https://example.com/`
 6. Click **Save**, and copy the **Client ID** and **Client Secret** values.
 7. If you want to show this application in the Okta Dashboard, click **Edit** on the **General Settings** tab and
    enter the following values:
     - **Login initiated by**: Either Okta or App
     - **Application visibility**: Show in both the Okta End-User Dashboard and the Okta Admin Console
-    - **Initiate login URI**: `https://example.com/index.php?rest_route=/okta/login`
+    - **Initiate login URI**: `https://example.com/index.php?rest_route=/openid/login`
 
 ## Configuration
 
@@ -69,9 +69,9 @@ You can set these options via the Settings > Okta page in the WordPress admin, o
 don't want them to be editable by other users:
 
 ```php
-define('WP_OKTA_DOMAIN', 'https://example.okta.com/.well-known/openid-configuration');
-define('WP_OKTA_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
-define('WP_OKTA_CLIENT_SECRET', '0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j');
+define('WP_OPENID_METADATA_URL', 'https://example.okta.com/.well-known/openid-configuration');
+define('WP_OPENID_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
+define('WP_OPENID_CLIENT_SECRET', '0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j');
 ```
 
 User matching is performed by matching:
@@ -80,12 +80,10 @@ User matching is performed by matching:
 - The `email` claim from the ID Token to the `user_email` field on the user
 - The `preferred_username` claim from the ID Token to the `user_login` field on the user
 
-Id you have remapped the `email` or `preferred_username` claims, the mapping will be used for user matching, before
+Id you have remapped the `email` or `preferred_username` claims, your mapping will be used for user matching, before
 falling back to `email` and `preferred_username` respectively.
 
 If a user is not found, a new user will be created with the attributes as mapped in the Settings > OpenID page.
-
-![Attribute Mapping](images/attribute_mapping.png?raw=true)
 
 ## Mapping User Attributes
 
@@ -101,7 +99,7 @@ The following WordPress user attributes are supported:
 - first_name: The user's first name
 - last_name: The user's last name
 
-The following OpenID Connect user attributes are supported:
+The following OpenID Connect attributes are supported:
 
 - sub: The user's unique identifier
 - preferred_username: The user's preferred username
@@ -114,6 +112,8 @@ The following OpenID Connect user attributes are supported:
 - picture: The user's profile picture
 - website: The user's website
 - email: The user's email address
+
+![Attribute Mapping](images/attribute_mapping.png?raw=true)
 
 ## Security
 
