@@ -53,7 +53,7 @@ class WPOktaLogin
     /**
      * @throws Exception
      */
-    public function login_redirect(): void
+    public function login_redirect(): WP_REST_Response
     {
         // Redirect to Okta, passing the state and nonce
         // Implementation taken from: https://developer.okta.com/docs/guides/sign-into-web-app-redirect/php/main/#redirect-to-the-sign-in-page
@@ -64,7 +64,10 @@ class WPOktaLogin
         $hash = hash('sha256', $_SESSION['oauth_code_verifier'], true);
         $code_challenge = rtrim(strtr(base64_encode($hash), '+/', '-_'), '=');
 
-        wp_redirect($this->org_url . 'oauth2/v1/authorize?' . http_build_query([
+        $response = new WP_REST_Response();
+
+        $response->set_status(302);
+        $response->header('Location', $this->org_url . 'oauth2/v1/authorize?' . http_build_query([
                 'response_type' => 'code',
                 'client_id' => $this->client_id,
                 'state' => $_SESSION['oauth_state'],
@@ -73,9 +76,12 @@ class WPOktaLogin
                 'code_challenge_method' => 'S256',
                 'scope' => 'openid profile email',
             ]));
+
+        return $response;
+
     }
 
-    public function login_callback(): void
+    public function login_callback(): WP_REST_Response
     {
         // Check the state
         if (empty($_GET['state']) || $_GET['state'] != $_SESSION['oauth_state']) {
@@ -109,7 +115,10 @@ class WPOktaLogin
         $this->_login_user($user);
 
         // Redirect to the admin dashboard
-        wp_redirect($this->is_network ? network_admin_url() : admin_url());
+        $response = new WP_REST_Response();
+        $response->set_status(302);
+        $response->header('Location', $this->is_network ? network_admin_url() : admin_url());
+        return $response;
     }
 
     private function _login_user(WP_User $user): void
