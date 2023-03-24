@@ -4,7 +4,7 @@
 Plugin Name: WP OpenID
 Plugin URI: https://github.com/nicko170/wp-openid
 Description: Simple OpenID authentication for WordPress.
-Version: 1.1.0
+Version: 1.3.0
 Author: Nick Pratley
 Author URI: https://theitdept.au
 Text Domain: openid
@@ -18,7 +18,7 @@ if (!function_exists('is_plugin_active_for_network')) {
     require_once(ABSPATH . '/wp-admin/includes/plugin.php');
 }
 
-require_once __DIR__ . '/WPOpenID.php';
+require_once __DIR__ . '/OpenID.php';
 require_once __DIR__ . '/Updater.php';
 
 // We only want to run the updater if we are in the admin area.
@@ -29,5 +29,5 @@ add_action('admin_init', function () {
 });
 
 // Boot the plugin.
-WPOpenID::make()
+OpenID::make()
     ->boot();
