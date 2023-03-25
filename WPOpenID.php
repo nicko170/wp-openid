@@ -1,6 +1,6 @@
 <?php
 
-class WPOpenID
+class OpenID
 {
     private ?string $metadata_url;
     private ?string $client_id;
@@ -63,7 +63,7 @@ class WPOpenID
     {
         add_action('init', [$this, 'start_session']);
         add_action('rest_api_init', [$this, 'rest_api_init']);
-        add_action('login_message', [$this, 'login_message']);
+        add_action('login_message', [$this, 'openid_login_page_button']);
         add_action('admin_init', [$this, 'admin_init']);
         add_action('admin_menu', [$this, 'admin_menu'], 99);
 
@@ -96,7 +96,7 @@ class WPOpenID
      */
     public function login_redirect(): WP_REST_Response
     {
-        // Redirect to OpenID, passing the state and nonce
+        // Redirect to OpenID , passing the state and nonce
         // Implementation taken from: https://developer.openid.com/docs/guides/sign-into-web-app-redirect/php/main/#redirect-to-the-sign-in-page
         $_SESSION['oauth_state'] = bin2hex(random_bytes(10));
 
@@ -106,7 +106,6 @@ class WPOpenID
         $code_challenge = rtrim(strtr(base64_encode($hash), '+/', '-_'), '=');
 
         $response = new WP_REST_Response();
-
         $response->set_status(302);
         $response->header('Location', $this->metadata['authorization_endpoint'] . '?' . http_build_query([
                 'response_type' => 'code',
@@ -117,9 +116,8 @@ class WPOpenID
                 'code_challenge_method' => 'S256',
                 'scope' => 'openid profile email',
             ]));
-
+            
         return $response;
-
     }
 
     public function login_callback(): WP_REST_Response
@@ -139,7 +137,7 @@ class WPOpenID
 
         // Exchange the authorization code for an access token by making a request to the token endpoint,
         // using the authorization code. The authorization code is a one-time use code, and if the token endpoint
-        // returns us a set of tokens, we can assume the user and token are valid.
+        // returns us a set of tokens instaad of an error, we can assume the user and token are valid.
         $token = $this->_get_token($_GET['code']);
 
         // Because we've asked the OpenID server for the openid scope, the response will contain an id_token
@@ -263,6 +261,7 @@ class WPOpenID
                 continue;
             }
 
+            // Set the mapped property on the user
             $user_data[$key] = $claim[$value];
         }
 
@@ -276,7 +275,7 @@ class WPOpenID
         return get_user_by('id', $user_id);
     }
 
-    public function login_message(): void
+    public function openid_login_page_button(): void
     {
         // If we have an issuer, client_id and client_secret, we can display the login button
         if (isset($this->metadata['issuer']) && $this->client_id && $this->client_secret) {
@@ -365,7 +364,8 @@ class WPOpenID
                         </td>
                     </tr>
                     <?php
-                    // If we have a valid metadata URL, show the issuer and authorization endpoint
+                    
+                    // if there is an error, we can show the user the URL is busted
                     if ($this->metadata && array_key_exists('error', $this->metadata)) {
                         ?>
                         <tr>
@@ -376,9 +376,12 @@ class WPOpenID
                                 <code><?php echo esc_html($this->metadata['error']); ?></code>
                             </td>
                         </tr>
+                        
                         <?php
+                    // If we have a valid metadata URL, show the issuer and authorization endpoint
                     } elseif ($this->metadata && array_key_exists('issuer', $this->metadata)) {
                         ?>
+                        
                         <tr>
                             <th scope="row">
                                 <?php esc_html_e('Issuer', 'openid'); ?>
@@ -406,6 +409,7 @@ class WPOpenID
                         <?php
                     }
                     ?>
+                    
                 </table>
 
                 <h2 class="title">
@@ -524,7 +528,7 @@ class WPOpenID
                             <p><code>user_login</code> The user's login username.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('user_login'); ?>
+                            <?php $this->_render_attribute_select('user_login'); ?>
                         </td>
                     </tr>
                     <tr>
@@ -532,7 +536,7 @@ class WPOpenID
                             <p><code>user_url</code> The user's URL.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('user_url'); ?>
+                            <?php $this->_render_attribute_select('user_url'); ?>
                         </td>
                     </tr>
                     <tr>
@@ -540,7 +544,7 @@ class WPOpenID
                             <p><code>user_email</code> The user's email address.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('user_email'); ?>
+                            <?php $this->_render_attribute_select('user_email'); ?>
                         </td>
                     </tr>
                     <tr>
@@ -548,7 +552,7 @@ class WPOpenID
                             <p><code>display_name</code> The user's display name.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('display_name'); ?>
+                            <?php $this->_render_attribute_select('display_name'); ?>
                         </td>
                     </tr>
                     <tr>
@@ -556,7 +560,7 @@ class WPOpenID
                             <p><code>nickname</code> The user's nickname.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('nickname'); ?>
+                            <?php $this->_render_attribute_select('nickname'); ?>
                         </td>
                     </tr>
                     <tr>
@@ -564,7 +568,7 @@ class WPOpenID
                             <p><code>first_name</code> The user's first name.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('first_name'); ?>
+                            <?php $this->_render_attribute_select('first_name'); ?>
                         </td>
                     </tr>
                     <tr>
@@ -572,7 +576,7 @@ class WPOpenID
                             <p><code>last_name</code> The user's last name.</p>
                         </td>
                         <td>
-                            <?php $this->render_attribute_select('last_name'); ?>
+                            <?php $this->_render_attribute_select('last_name'); ?>
                         </td>
                     </tr>
 
@@ -652,33 +656,38 @@ class WPOpenID
 
     private function _get_metadata(): array
     {
-        $metadata_url = $this->metadata_url;
-
-        if (empty($metadata_url)) {
+        // validate the url has been set
+        if ($metadata_url) {
             return [];
         }
+        
+        // We cache on the hash of the url, to expire the cache if its changed
+        $hash = md5($this->metadata_url);
 
-        $hash = md5($metadata_url);
-
+        // if we have it cached, use that, if not - cache it
         $metadata = get_transient('openid_metadata_' . $hash);
         if (empty($metadata)) {
-            $response = wp_remote_get($metadata_url);
+            $response = wp_remote_get($this->metadata_url);
             if (is_wp_error($response)) {
                 return ['error' => $response->get_error_message()];
             }
 
+            // grab the decoded body
             $metadata = json_decode(wp_remote_retrieve_body($response), true);
+            
+            // we dont want to cache an empty result, so this is needed
             if (empty($metadata)) {
                 return [];
             }
 
+            // cache for 2 hrs
             set_transient('openid_metadata_' . $hash, $metadata, 24 * HOUR_IN_SECONDS);
         }
 
         return $metadata;
     }
 
-    private function render_attribute_select(string $option): void
+    private function _render_attribute_select(string $option): void
     {
         ?>
         <label>
