@@ -47,7 +47,7 @@ jobs:
       - name: Create Release
         uses: ncipollo/release-action@v1.12.0
         with:
-          token: ${{ steps.generate_token.outputs.token }}
+          token: ${{ github.token }}
           allowUpdates: true
           draft: false
           makeLatest: true
