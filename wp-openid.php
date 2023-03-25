@@ -24,7 +24,10 @@ require_once __DIR__ . '/Updater.php';
 // We only want to run the updater if we are in the admin area.
 add_action('admin_init', function () {
     Updater::make()
+        ->transient('wp_openid_update')
         ->repository('nicko170/wp-openid')
+        ->asset_name('wp-openid.zip')
+        ->readme_url('https://raw.githubusercontent.com/nicko170/wp-openid/main/README.md')
         ->boot(__FILE__);
 });
 

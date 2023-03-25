@@ -7,6 +7,9 @@ class Updater
     private string $basename;
     private bool $active;
     private ?string $repository;
+    private string $asset_name;
+    private string $transient;
+    private string $readme_url;
 
 
     public static function make(): self
@@ -33,6 +36,24 @@ class Updater
     public function repository(string $repository): self
     {
         $this->repository = $repository;
+        return $this;
+    }
+
+    public function asset_name(string $asset_name): self
+    {
+        $this->asset_name = $asset_name;
+        return $this;
+    }
+
+    public function transient(string $transient): self
+    {
+        $this->transient = $transient;
+        return $this;
+    }
+
+    public function readme_url(string $readme_url): self
+    {
+        $this->readme_url = $readme_url;
         return $this;
     }
 
@@ -83,8 +104,8 @@ class Updater
                     'homepage' => $this->plugin['PluginURI'],
                     'short_description' => $this->plugin['Description'],
                     'sections' => [
-                        'Description' => $this->plugin['Description'],
-                        'Updates' => $gh['body'],
+                        'Description' => nl2br(file_get_contents($this->readme_url)),
+                        'Updates' => nl2br($gh['body']),
                     ],
                     'download_link' => $gh['zipball_url']
                 ];
@@ -114,7 +135,7 @@ class Updater
     private function _get_repository(): array
     {
         // Cache the response for 2 hours to prevent GitHub API rate limit
-        if (false === $response = get_transient('github_response')) {
+        if (false === $response = get_transient($this->transient)) {
             $request_uri = sprintf('https://api.github.com/repos/%s/releases', $this->repository);
 
             $response = wp_remote_get($request_uri);
@@ -123,7 +144,7 @@ class Updater
                 $response = current(json_decode(wp_remote_retrieve_body($response), true));
             }
 
-            set_transient('openid_github_response', $response, 2 * HOUR_IN_SECONDS);
+            set_transient($this->transient, $response, 2 * HOUR_IN_SECONDS);
         }
 
         return $response;
@@ -137,20 +158,29 @@ class Updater
         $response_version = $response['tag_name'];
 
         if (version_compare($response_version, $current_version, '>')) {
-            return (object)[
-                'id' => $this->basename,
-                'slug' => dirname($this->basename),
-                'plugin' => $this->basename,
-                'new_version' => $response_version,
-                'url' => $response['url'],
-                'package' => "https://github.com/" . $this->repository . "/releases/" . $response_version . "/download/wp-openid.zip",
-                'icons' => array(),
-                'banners' => array(),
-                'banners_rtl' => array(),
-                'tested' => '',
-                'requires_php' => '',
-                'compatibility' => new stdClass(),
-            ];
+
+            // Search for an asset with the correct name
+            $asset = current(array_filter($response['assets'], function ($asset) {
+                return $asset['name'] === $this->asset_name;
+            }));
+
+            // If we have an asset, use it to build the update object
+            if ($asset) {
+                return (object)[
+                    'id' => $this->basename,
+                    'slug' => dirname($this->basename),
+                    'plugin' => $this->basename,
+                    'new_version' => $response_version,
+                    'url' => $response['url'],
+                    'package' => $asset['browser_download_url'],
+                    'icons' => array(),
+                    'banners' => array(),
+                    'banners_rtl' => array(),
+                    'tested' => '',
+                    'requires_php' => '',
+                    'compatibility' => new stdClass(),
+                ];
+            }
         }
 
         return false;
