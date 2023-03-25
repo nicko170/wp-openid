@@ -23,7 +23,7 @@ jobs:
 
       - run: |
           # Update the Version in the plugin file
-          sed -i "s/Version: [0-9]\+\.[0-9]\+\.[0-9]\+/Version: ${{ github.ref_name }}/g" wp-openid.php
+          sed -i "s/Version: .*?$/Version: ${{ github.ref_name }}/g" wp-openid.php
 
       - run: mkdir build
 
