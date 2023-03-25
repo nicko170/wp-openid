@@ -74,16 +74,7 @@ define('WP_OPENID_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
 define('WP_OPENID_CLIENT_SECRET', '0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j');
 ```
 
-User matching is performed by matching:
-
-- The `sub` claim from the ID Token to the `openid_id` meta field on the user
-- The `email` claim from the ID Token to the `user_email` field on the user
-- The `preferred_username` claim from the ID Token to the `user_login` field on the user
-
-Id you have remapped the `email` or `preferred_username` claims, your mapping will be used for user matching, before
-falling back to `email` and `preferred_username` respectively.
-
-If a user is not found, a new user will be created with the attributes as mapped in the Settings > OpenID page.
+![Settings Page](images/settings_page.png?raw=true)
 
 ## Mapping User Attributes
 
@@ -114,6 +105,17 @@ The following OpenID Connect attributes are supported:
 - email: The user's email address
 
 ![Attribute Mapping](images/attribute_mapping.png?raw=true)
+
+## User matching is performed by matching:
+
+- The `sub` claim from the ID Token to the `openid_id` meta field on the user
+- The `email` claim from the ID Token to the `user_email` field on the user
+- The `preferred_username` claim from the ID Token to the `user_login` field on the user
+
+Id you have remapped the `email` or `preferred_username` claims, your mapping will be used for user matching, before
+falling back to `email` and `preferred_username` respectively.
+
+If a user is not found, a new user will be created with the attributes as mapped in the Settings > OpenID page.
 
 ## Security
 
