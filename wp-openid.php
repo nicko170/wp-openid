@@ -4,7 +4,7 @@
 Plugin Name: WP OpenID
 Plugin URI: https://github.com/nicko170/wp-openid
 Description: Simple OpenID authentication for WordPress.
-Version: 1.3.0
+Version: VERSION
 Author: Nick Pratley
 Author URI: https://theitdept.au
 Text Domain: openid

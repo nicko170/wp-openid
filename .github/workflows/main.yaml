@@ -23,7 +23,7 @@ jobs:
 
       - run: |
           # Update the Version in the plugin file
-          sed -i "s/Version: [0-9]\+\.[0-9]\+\.[0-9]\+/Version: ${{ github.ref_name }}/g" wp-openid.php
+          sed -i "s/Version: VERSION\+/Version: ${{ github.ref_name }}/g" wp-openid.php
 
       - run: mkdir build
 
@@ -38,13 +38,6 @@ jobs:
           name: wp-openid
           path: build/wp-openid.zip
 
-      - name: Update CHANGELOG
-        id: changelog
-        uses: requarks/changelog-action@v1
-        with:
-          token: ${{ steps.generate_token.outputs.token }}
-          tag: ${{ github.ref_name }}
-
       - name: Create Release
         uses: ncipollo/release-action@v1.12.0
         with:
@@ -52,8 +45,10 @@ jobs:
           draft: false
           makeLatest: true
           name: ${{ github.ref_name }}
-          body: ${{ steps.changelog.outputs.changes }}
+          generateReleaseNotes: true
           token: ${{ steps.generate_token.outputs.token }}
+          artifacts: build/wp-openid.zip
+          replacesArtifacts: true
 
       - name: Commit CHANGELOG.md
         uses: stefanzweifel/git-auto-commit-action@v4
