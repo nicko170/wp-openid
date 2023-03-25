@@ -1,7 +1,6 @@
 # WP-OpenID
 
-A WordPress plugin to authenticate users via a OpenID Provider. This plugin scratches a very specific itch, and I do not
-want to use other OpenID Connect plugins because they are too complicated and/or too opinionated. This plugin is very
+A WordPress plugin to authenticate users via a OpenID Provider. This plugin scratches a very specific itch. This plugin is very
 simple and does not do anything other than authenticate users via an OpenID Provider.
 
 This plugin has been tested with both Keycloak and Okta, but should work with any OpenID Connect provider that supports

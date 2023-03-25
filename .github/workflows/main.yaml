@@ -21,9 +21,7 @@ jobs:
         with:
           token: ${{ steps.get_token.outputs.token }}
 
-      - run: |
-          # Update the Version in the plugin file
-          sed -i "s/VERSION/${{ github.ref_name }}/g" wp-openid.php
+      - run: sed -i "s/VERSION/${{ github.ref_name }}/g" wp-openid.php
 
       - run: mkdir build
 
@@ -43,7 +41,7 @@ jobs:
         uses: requarks/changelog-action@v1
         continue-on-error: true
         with:
-          token: ${{ steps.generate_token.outputs.token }}
+          token: ${{ github.token }}
           tag: ${{ github.ref_name }}
 
       - name: Create Release
