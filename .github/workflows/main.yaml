@@ -1,15 +1,29 @@
-name: Generate Installable Plugin, and Upload as Release Asset
+name: "Publish"
+
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
 
 jobs:
-  build:
-    name: Upload Release Asset
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Get Token
+        id: get_token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.APP_ID }}
+          private_key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Initialize Actions
         uses: actions/checkout@v2
+        with:
+          token: ${{ steps.get_token.outputs.token }}
+
+      - run: |
+          # Update the Version in the plugin file
+          sed -i "s/Version: [0-9]\+\.[0-9]\+\.[0-9]\+/Version: ${{ github.ref_name }}/g" wp-openid.php
 
       - run: mkdir build
 
@@ -24,9 +38,27 @@ jobs:
           name: wp-openid
           path: build/wp-openid.zip
 
-      - name: Upload to release
-        uses: JasonEtco/upload-to-release@master
+      - name: Update CHANGELOG
+        id: changelog
+        uses: requarks/changelog-action@v1
         with:
-          args: build/wp-openid.zip application/zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate_token.outputs.token }}
+          tag: ${{ github.ref_name }}
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          allowUpdates: true
+          draft: false
+          makeLatest: true
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.changes }}
+          token: ${{ steps.generate_token.outputs.token }}
+
+      - name: Commit CHANGELOG.md
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          branch: main
+          commit_message: 'docs: update CHANGELOG.md for ${{ github.ref_name }} [skip ci]'
+          file_pattern: CHANGELOG.md
+          token: ${{ steps.generate_token.outputs.token }}
