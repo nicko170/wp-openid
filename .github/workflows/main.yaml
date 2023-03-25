@@ -42,7 +42,7 @@ jobs:
         id: changelog
         uses: requarks/changelog-action@v1
         with:
-          token: ${{ steps.generate_token.outputs.token }}
+          token: ${{ github.token }}
           tag: ${{ github.ref_name }}
 
       - name: Create Release
