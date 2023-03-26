@@ -657,7 +657,7 @@ class OpenID
     private function _get_metadata(): array
     {
         // validate the url has been set
-        if ($this->metadata_url) {
+        if (!$this->metadata_url) {
             return [];
         }
         
