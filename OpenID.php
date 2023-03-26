@@ -61,20 +61,12 @@ class OpenID
 
     public function boot(): void
     {
-        add_action('init', [$this, 'start_session']);
         add_action('rest_api_init', [$this, 'rest_api_init']);
         add_action('login_message', [$this, 'openid_login_page_button']);
         add_action('admin_init', [$this, 'admin_init']);
         add_action('admin_menu', [$this, 'admin_menu'], 99);
 
         register_deactivation_hook(__FILE__, [$this, 'deactivate']);
-    }
-
-    public function start_session(): void
-    {
-        if (!session_id()) {
-            session_start();
-        }
     }
 
     public function rest_api_init(): void
@@ -98,11 +90,11 @@ class OpenID
     {
         // Redirect to OpenID , passing the state and nonce
         // Implementation taken from: https://developer.openid.com/docs/guides/sign-into-web-app-redirect/php/main/#redirect-to-the-sign-in-page
-        $_SESSION['oauth_state'] = bin2hex(random_bytes(10));
+
+        $state = $this->_create_oauth_state();
 
         // Create the PKCE code verifier and code challenge
-        $_SESSION['oauth_code_verifier'] = bin2hex(random_bytes(50));
-        $hash = hash('sha256', $_SESSION['oauth_code_verifier'], true);
+        $hash = hash('sha256', $state['verifier'], true);
         $code_challenge = rtrim(strtr(base64_encode($hash), '+/', '-_'), '=');
 
         $response = new WP_REST_Response();
@@ -110,20 +102,24 @@ class OpenID
         $response->header('Location', $this->metadata['authorization_endpoint'] . '?' . http_build_query([
                 'response_type' => 'code',
                 'client_id' => $this->client_id,
-                'state' => $_SESSION['oauth_state'],
+                'state' => $state['state'],
                 'redirect_uri' => rest_url('/openid/callback'),
                 'code_challenge' => $code_challenge,
                 'code_challenge_method' => 'S256',
                 'scope' => 'openid profile email',
             ]));
-            
+
         return $response;
     }
 
     public function login_callback(): WP_REST_Response
     {
+        if (!$state = $this->_get_oauth_state()) {
+            die("state not found2");
+        }
+
         // Check the state
-        if (empty($_GET['state']) || $_GET['state'] != $_SESSION['oauth_state']) {
+        if (empty($_GET['state']) || $_GET['state'] != $state['state']) {
             die("state does not match");
         }
 
@@ -137,7 +133,7 @@ class OpenID
 
         // Exchange the authorization code for an access token by making a request to the token endpoint,
         // using the authorization code. The authorization code is a one-time use code, and if the token endpoint
-        // returns us a set of tokens instaad of an error, we can assume the user and token are valid.
+        // returns us a set of tokens instead of an error, we can assume the user and token are valid.
         $token = $this->_get_token($_GET['code']);
 
         // Because we've asked the OpenID server for the openid scope, the response will contain an id_token
@@ -155,6 +151,9 @@ class OpenID
 
         // Log the user in
         $this->_login_user($user);
+
+        // Delete the state
+        $this->_delete_oauth_state();
 
         // Redirect to the admin dashboard
         $response = new WP_REST_Response();
@@ -185,6 +184,12 @@ class OpenID
 
     private function _get_token(string $code): array
     {
+        // Exchange the authorization code for an access token by making a request to the token endpoint
+
+        if (!$state = $this->_get_oauth_state()) {
+            die("state not found3");
+        }
+
         $response = wp_safe_remote_post($this->metadata['token_endpoint'], [
             'headers' => [
                 'Accept' => 'application/json',
@@ -196,7 +201,7 @@ class OpenID
                 'redirect_uri' => rest_url('/openid/callback'),
                 'client_id' => $this->client_id,
                 'client_secret' => $this->client_secret,
-                'code_verifier' => $_SESSION['oauth_code_verifier']
+                'code_verifier' => $state['verifier'],
             ],
             'sslverify' => true,
         ]);
@@ -317,6 +322,15 @@ class OpenID
 
 
         add_action('network_admin_edit_openid', [$this, 'save_settings']);
+
+        add_filter('plugin_action_links_wp-openid/wp-openid.php', fn($links) => [
+            ...$links,
+            sprintf(
+                '<a href="%s">%s</a>',
+                esc_url($this->is_network ? network_admin_url('settings.php?page=openid') : admin_url('options-general.php?page=openid')),
+                esc_html__('Settings', 'openid')
+            ),
+        ]);
     }
 
     public function admin_menu(): void
@@ -364,7 +378,7 @@ class OpenID
                         </td>
                     </tr>
                     <?php
-                    
+
                     // if there is an error, we can show the user the URL is busted
                     if ($this->metadata && array_key_exists('error', $this->metadata)) {
                         ?>
@@ -376,12 +390,12 @@ class OpenID
                                 <code><?php echo esc_html($this->metadata['error']); ?></code>
                             </td>
                         </tr>
-                        
+
                         <?php
-                    // If we have a valid metadata URL, show the issuer and authorization endpoint
+                        // If we have a valid metadata URL, show the issuer and authorization endpoint
                     } elseif ($this->metadata && array_key_exists('issuer', $this->metadata)) {
                         ?>
-                        
+
                         <tr>
                             <th scope="row">
                                 <?php esc_html_e('Issuer', 'openid'); ?>
@@ -409,7 +423,7 @@ class OpenID
                         <?php
                     }
                     ?>
-                    
+
                 </table>
 
                 <h2 class="title">
@@ -660,7 +674,7 @@ class OpenID
         if (!$this->metadata_url) {
             return [];
         }
-        
+
         // We cache on the hash of the url, to expire the cache if its changed
         $hash = md5($this->metadata_url);
 
@@ -674,8 +688,8 @@ class OpenID
 
             // grab the decoded body
             $metadata = json_decode(wp_remote_retrieve_body($response), true);
-            
-            // we dont want to cache an empty result, so this is needed
+
+            // we don't want to cache an empty result, so this is needed
             if (empty($metadata)) {
                 return [];
             }
@@ -701,5 +715,55 @@ class OpenID
             </select>
         </label>
         <?php
+    }
+
+    /**
+     * @throws Exception
+     */
+    private function _create_oauth_state(): array
+    {
+        // If we have a session cookie, delete it.
+        if (isset($_COOKIE['openid_session'])) {
+            delete_transient('openid_oauth_state_' . $_COOKIE['openid_session']);
+        }
+
+        // Create a random hash for the user, and store it in a cookie.
+        $session = bin2hex(random_bytes(32));
+        setcookie('openid_session', $session, time() + 3600);
+
+        // Create a random state and verifier
+        $oauth_state = [
+            'state' => bin2hex(random_bytes(10)),
+            'verifier' => bin2hex(random_bytes(50)),
+        ];
+
+        // Store the state and verifier in a transient, so we can verify the response later.
+        set_transient('openid_oauth_state_' . $session, $oauth_state, 60 * MINUTE_IN_SECONDS);
+
+        return $oauth_state;
+    }
+
+    /**
+     * @return array|false
+     */
+    private function _get_oauth_state()
+    {
+        // Return the state and verifier from the transient, if it exists.
+        if (isset($_COOKIE['openid_session'])) {
+            return get_transient('openid_oauth_state_' . $_COOKIE['openid_session']) ?? false;
+        }
+
+        return false;
+    }
+
+    private function _delete_oauth_state(): void
+    {
+        // Delete the state and verifier from the transient, if it exists.
+        if (isset($_COOKIE['openid_session'])) {
+            delete_transient('openid_oauth_state_' . $_COOKIE['openid_session']);
+        }
+
+        // Delete the session cookie
+        setcookie('openid_session', '', time() - 3600);
     }
 }
