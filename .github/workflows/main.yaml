@@ -50,7 +50,7 @@ jobs:
           draft: false
           makeLatest: true
           name: ${{ github.ref_name }}
-          generateReleaseNotes: true
+          body: ${{ steps.changelog.outputs.changes }}
           artifacts: build/wp-openid.zip
           replacesArtifacts: true
 
