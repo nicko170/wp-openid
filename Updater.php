@@ -150,7 +150,7 @@ class Updater
         return $response;
     }
 
-    private function _get_update_from_repository(): object|false
+    private function _get_update_from_repository(): ?object
     {
         $response = $this->_get_repository();
 
@@ -183,6 +183,6 @@ class Updater
             }
         }
 
-        return false;
+        return null;
     }
 }
