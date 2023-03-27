@@ -19,7 +19,11 @@ jobs:
       - name: Initialize Actions
         uses: actions/checkout@v3
 
-      - run: sed -i "s/VERSION/${{ github.ref_name:1 }}/g" wp-openid.php
+      - run: |
+          # Get the version from the ref_name, and remove the v prefix
+          version=${{ github.ref_name }}
+          version=${version/#v}
+          sed -i "s/VERSION/$version/g" wp-openid.php
 
       - run: mkdir build
 
