@@ -200,7 +200,7 @@ class OpenID
             'response_type' => 'code',
             'client_id' => $this->client_id,
             'state' => $state['state'],
-            'redirect_uri' => add_query_arg('openid', 'callback', site_url('/wp-login.php')),
+            'redirect_uri' => esc_url(add_query_arg('openid', 'callback', site_url('/wp-login.php'))),
             'code_challenge' => $code_challenge,
             'code_challenge_method' => 'S256',
             'scope' => 'openid profile email',
@@ -290,7 +290,7 @@ class OpenID
             'body' => [
                 'grant_type' => 'authorization_code',
                 'code' => $code,
-                'redirect_uri' => add_query_arg('openid', 'callback', site_url('/wp-login.php')),
+                'redirect_uri' => esc_url(add_query_arg('openid', 'callback', site_url('/wp-login.php'))),
                 'client_id' => $this->client_id,
                 'client_secret' => $this->client_secret,
                 'code_verifier' => $state['verifier'],
