@@ -473,14 +473,15 @@ class OpenID
 
         add_action('network_admin_edit_openid', [$this, 'save_settings']);
 
-        add_filter('plugin_action_links_wp-openid/wp-openid.php', fn($links) => [
-            ...$links,
-            sprintf(
+        add_filter('plugin_action_links_wp-openid/wp-openid.php', function($links) {
+            $links[] = sprintf(
                 '<a href="%s">%s</a>',
                 esc_url($this->is_network ? network_admin_url('settings.php?page=openid') : admin_url('options-general.php?page=openid')),
                 esc_html__('Settings', 'openid')
-            ),
-        ]);
+            );
+
+            return $links;
+        });
     }
 
     public function admin_menu(): void
