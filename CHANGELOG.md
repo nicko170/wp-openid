@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.2] - 2023-03-27
+### :bug: Bug Fixes
+- [`af513eb`](https://github.com/nicko170/wp-openid/commit/af513ebc61641101f753161534043f0a7785235b) - **admin**: Upgrade Link broken on crappy PHP versions *(commit by [@nicko170](https://github.com/nicko170))*
+
+
 ## [v0.2.0] - 2023-03-27
 ### :sparkles: New Features
 - [`35e6bf8`](https://github.com/nicko170/wp-openid/commit/35e6bf86c6f2c2aee455e91678de2c19074b1b06) - Move to cookies+transiets and not sessions for better compatibility *(commit by [@nicko170](https://github.com/nicko170))*
@@ -43,3 +48,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v0.0.5]: https://github.com/nicko170/wp-openid/compare/v0.0.4...v0.0.5
 [v0.1.1]: https://github.com/nicko170/wp-openid/compare/v0.1.0...v0.1.1
 [v0.2.0]: https://github.com/nicko170/wp-openid/compare/v0.1.1...v0.2.0
+[v0.2.2]: https://github.com/nicko170/wp-openid/compare/v0.2.1...v0.2.2
