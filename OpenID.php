@@ -126,7 +126,7 @@ class OpenID
             wp_enqueue_media();
 
             // Load the plugin scripts
-            wp_enqueue_script('openid-admin', plugins_url('assets/js/admin-image-select.js', __FILE__), ['jquery'], WP_OPENID_VERSION);
+            wp_enqueue_script('openid-admin', plugins_url('assets/js/admin-image-select.js', __FILE__), ['jquery'], WP_OPENID_VER);
         }
     }
 

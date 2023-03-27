@@ -14,7 +14,7 @@ Documentation: https://github.com/nicko170/wp-openid
 
 
 // Define the plugin version. This will be replaced by the build script.
-const WP_OPENID_VERSION = 'VERSION';
+const WP_OPENID_VER = 'VERSION';
 
 defined('ABSPATH') or die('');
 
