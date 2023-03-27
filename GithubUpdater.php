@@ -1,6 +1,6 @@
 <?php
 
-class Updater
+class GithubUpdater
 {
     private string $file;
     private array $plugin;
@@ -8,7 +8,6 @@ class Updater
     private bool $active;
     private ?string $repository;
     private string $asset_name;
-    private string $transient;
     private string $readme_url;
 
 
@@ -42,12 +41,6 @@ class Updater
     public function asset_name(string $asset_name): self
     {
         $this->asset_name = $asset_name;
-        return $this;
-    }
-
-    public function transient(string $transient): self
-    {
-        $this->transient = $transient;
         return $this;
     }
 
@@ -134,20 +127,15 @@ class Updater
 
     private function _get_repository(): array
     {
-        // Cache the response for 2 hours to prevent GitHub API rate limit
-        if (false === $response = get_transient($this->transient)) {
-            $request_uri = sprintf('https://api.github.com/repos/%s/releases', $this->repository);
+        $request_uri = sprintf('https://api.github.com/repos/%s/releases', $this->repository);
 
-            $response = wp_remote_get($request_uri);
+        $response = wp_remote_get($request_uri);
 
-            if (!is_wp_error($response) || wp_remote_retrieve_response_code($response) === 200) {
-                $response = current(json_decode(wp_remote_retrieve_body($response), true));
-            }
-
-            set_transient($this->transient, $response, 2 * HOUR_IN_SECONDS);
+        if (!is_wp_error($response) || wp_remote_retrieve_response_code($response) === 200) {
+            return current(json_decode(wp_remote_retrieve_body($response), true));
         }
 
-        return $response;
+        return [];
     }
 
     private function _get_update_from_repository(): ?object
