@@ -107,7 +107,6 @@ class OpenID
 
     public function boot(): void
     {
-        add_action('rest_api_init', [$this, 'rest_api_init']);
         add_action('login_message', [$this, 'openid_login_page_button']);
         add_action('admin_init', [$this, 'admin_init']);
         add_action('admin_menu', [$this, 'admin_menu'], 99);
@@ -130,24 +129,20 @@ class OpenID
         }
     }
 
-    public function rest_api_init(): void
-    {
-        register_rest_route('openid', '/login', array(
-            'methods' => 'GET',
-            'callback' => [$this, 'login_redirect'],
-        ));
-
-        register_rest_route('openid', '/callback', array(
-            'methods' => 'GET',
-            'callback' => [$this, 'login_callback'],
-        ));
-    }
-
     public function login_init(): void
     {
         // We don't want to get in the way of the logout function.
         if (isset($_REQUEST['action']) && $_REQUEST['action'] === 'logout') {
             return;
+        }
+
+        // Load the OpenID routes
+        if (isset($_REQUEST['openid']) && $_REQUEST['openid'] === 'login') {
+            $this->login_redirect();
+            exit();
+        } elseif (isset($_REQUEST['openid']) && $_REQUEST['openid'] === 'callback') {
+            $this->login_callback();
+            exit();
         }
 
         // If we are "taking over" the login page, we need to disable the default login form and only show ours.
@@ -190,7 +185,7 @@ class OpenID
     /**
      * @throws Exception
      */
-    public function login_redirect(): WP_REST_Response
+    public function login_redirect(): bool
     {
         // Redirect to OpenID , passing the state and nonce
         // Implementation taken from: https://developer.openid.com/docs/guides/sign-into-web-app-redirect/php/main/#redirect-to-the-sign-in-page
@@ -201,22 +196,18 @@ class OpenID
         $hash = hash('sha256', $state['verifier'], true);
         $code_challenge = rtrim(strtr(base64_encode($hash), '+/', '-_'), '=');
 
-        $response = new WP_REST_Response();
-        $response->set_status(302);
-        $response->header('Location', $this->metadata['authorization_endpoint'] . '?' . http_build_query([
-                'response_type' => 'code',
-                'client_id' => $this->client_id,
-                'state' => $state['state'],
-                'redirect_uri' => rest_url('/openid/callback'),
-                'code_challenge' => $code_challenge,
-                'code_challenge_method' => 'S256',
-                'scope' => 'openid profile email',
-            ]));
-
-        return $response;
+        return wp_redirect(add_query_arg([
+            'response_type' => 'code',
+            'client_id' => $this->client_id,
+            'state' => $state['state'],
+            'redirect_uri' => add_query_arg('openid', 'callback', site_url('/wp-login.php')),
+            'code_challenge' => $code_challenge,
+            'code_challenge_method' => 'S256',
+            'scope' => 'openid profile email',
+        ], $this->metadata['authorization_endpoint']));
     }
 
-    public function login_callback(): WP_REST_Response
+    public function login_callback(): bool
     {
         if (!$state = $this->_get_oauth_state()) {
             die("state not found");
@@ -259,11 +250,8 @@ class OpenID
         // Delete the state
         $this->_delete_oauth_state();
 
-        // Redirect to the admin dashboard
-        $response = new WP_REST_Response();
-        $response->set_status(302);
-        $response->header('Location', $this->is_network ? network_admin_url() : admin_url());
-        return $response;
+        // Redirect to the admin page
+        return wp_redirect($this->is_network ? network_admin_url() : admin_url());
     }
 
     private function _login_user(WP_User $user): void
@@ -302,7 +290,7 @@ class OpenID
             'body' => [
                 'grant_type' => 'authorization_code',
                 'code' => $code,
-                'redirect_uri' => rest_url('/openid/callback'),
+                'redirect_uri' => add_query_arg('openid', 'callback', site_url('/wp-login.php')),
                 'client_id' => $this->client_id,
                 'client_secret' => $this->client_secret,
                 'code_verifier' => $state['verifier'],
@@ -402,7 +390,7 @@ class OpenID
             </style>
             <form style="padding-bottom: 26px; text-align: center;">
                 <div class="openid-logo"></div>
-                <a href="<?php echo esc_url(rest_url('/openid/login')); ?>" class="button">
+                <a href="<?php echo esc_url(add_query_arg('openid', 'login', site_url('/wp-login.php'))) ?>" class="button">
                     <?php printf(
                         esc_html__($this->login_button_text, 'openid')
                     ); ?>
@@ -586,7 +574,7 @@ class OpenID
                             <?php esc_html_e('Sign-in redirect URIs', 'openid'); ?>
                         </th>
                         <td>
-                            <code><?php echo esc_url(rest_url('/openid/callback')); ?></code>
+                            <code><?php echo esc_url(add_query_arg('openid', 'callback', site_url('/wp-login.php'))); ?></code>
                         </td>
                     </tr>
                     <tr>
@@ -644,7 +632,7 @@ class OpenID
                             <?php esc_html_e('Initiate Login URI', 'openid'); ?>
                         </th>
                         <td>
-                            <code><?php echo esc_url(rest_url('/openid/login')); ?></code>
+                            <code><?php echo esc_url(add_query_arg('openid', 'login', site_url('/wp-login.php'))) ?></code>
                         </td>
                     </tr>
                 </table>
