@@ -1,12 +1,13 @@
 # WP-OpenID
 
-A WordPress plugin to authenticate users via a OpenID Provider. This plugin scratches a very specific itch. This plugin is very
+A WordPress plugin to authenticate users via a OpenID Provider. This plugin scratches a very specific itch. This plugin
+is very
 simple and does not do anything other than authenticate users via an OpenID Provider.
 
 This plugin has been tested with both Keycloak and Okta, but should work with any OpenID Connect provider that supports
 the Authorization Code flow with PKCE.
 
-![The WordPress Login Page](images/login_page.png?raw=true)
+![The WordPress Login Page](docs/images/login_page.png?raw=true)
 
 ## Installation
 
@@ -73,7 +74,7 @@ define('WP_OPENID_CLIENT_ID', '0oa1b2c3d4e5f6g7h8i9j');
 define('WP_OPENID_CLIENT_SECRET', '0oa1b2c3d4e5f6g7h8i9j0oa1b2c3d4e5f6g7h8i9j');
 ```
 
-![Settings Page](images/settings_page.png?raw=true)
+![Settings Page](docs/images/settings_page.png?raw=true)
 
 ## Mapping User Attributes
 
@@ -103,7 +104,7 @@ The following OpenID Connect attributes are supported:
 - website: The user's website
 - email: The user's email address
 
-![Attribute Mapping](images/attribute_mapping.png?raw=true)
+![Attribute Mapping](docs/images/attribute_mapping.png?raw=true)
 
 ## User matching is performed by matching:
 
@@ -111,7 +112,7 @@ The following OpenID Connect attributes are supported:
 - The `email` claim from the ID Token to the `user_email` field on the user
 - The `preferred_username` claim from the ID Token to the `user_login` field on the user
 
-Id you have remapped the `email` or `preferred_username` claims, your mapping will be used for user matching, before
+If you have remapped the `email` or `preferred_username` claims, your mapping will be used for user matching, before
 falling back to `email` and `preferred_username` respectively.
 
 If a user is not found, a new user will be created with the attributes as mapped in the Settings > OpenID page.
