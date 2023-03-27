@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.0] - 2023-03-27
+### :boom: BREAKING CHANGES
+- due to [`2f04dd1`](https://github.com/nicko170/wp-openid/commit/2f04dd1deaacd479961a45427827857a5991a8a4) - fix fallback url *(commit by [@nicko170](https://github.com/nicko170))*:
+
+  fix fallback url
+
+- due to [`aa42493`](https://github.com/nicko170/wp-openid/commit/aa4249373b4f1c01fc696beb89ee3a778d3d4e3f) - Removed usage of REST API, and now hook login function for routes. This breaks callback URLs and they will need to be changed. *(commit by [@nicko170](https://github.com/nicko170))*:
+
+  Removed usage of REST API, and now hook login function for routes. This breaks callback URLs and they will need to be changed.
+
+
+### :bug: Bug Fixes
+- [`2f04dd1`](https://github.com/nicko170/wp-openid/commit/2f04dd1deaacd479961a45427827857a5991a8a4) - fix fallback url *(commit by [@nicko170](https://github.com/nicko170))*
+- [`aa42493`](https://github.com/nicko170/wp-openid/commit/aa4249373b4f1c01fc696beb89ee3a778d3d4e3f) - Removed usage of REST API, and now hook login function for routes. This breaks callback URLs and they will need to be changed. *(commit by [@nicko170](https://github.com/nicko170))*
+
+
 ## [v0.2.2] - 2023-03-27
 ### :bug: Bug Fixes
 - [`af513eb`](https://github.com/nicko170/wp-openid/commit/af513ebc61641101f753161534043f0a7785235b) - **admin**: Upgrade Link broken on crappy PHP versions *(commit by [@nicko170](https://github.com/nicko170))*
@@ -49,3 +65,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v0.1.1]: https://github.com/nicko170/wp-openid/compare/v0.1.0...v0.1.1
 [v0.2.0]: https://github.com/nicko170/wp-openid/compare/v0.1.1...v0.2.0
 [v0.2.2]: https://github.com/nicko170/wp-openid/compare/v0.2.1...v0.2.2
+[v0.3.0]: https://github.com/nicko170/wp-openid/compare/v0.2.3...v0.3.0
