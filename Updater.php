@@ -158,7 +158,6 @@ class Updater
         $response_version = $response['tag_name'];
 
         if (version_compare($response_version, $current_version, '>')) {
-
             // Search for an asset with the correct name
             $asset = current(array_filter($response['assets'], function ($asset) {
                 return $asset['name'] === $this->asset_name;
