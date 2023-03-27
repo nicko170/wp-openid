@@ -12,6 +12,10 @@ Domain Path: /languages
 Documentation: https://github.com/nicko170/wp-openid
 */
 
+
+// Define the plugin version. This will be replaced by the build script.
+const WP_OPENID_VERSION = 'VERSION';
+
 defined('ABSPATH') or die('');
 
 if (!function_exists('is_plugin_active_for_network')) {

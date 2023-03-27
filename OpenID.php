@@ -10,14 +10,61 @@ class OpenID
     private ?array $metadata;
     private ?array $user_mapping;
     private ?array $user_fields;
+    private ?string $login_button_text;
+    /**
+     * @var mixed|string
+     */
+    private ?string $login_separator_text;
+    /**
+     * @var mixed|string
+     */
+    private ?string $login_image;
+    private ?int $login_image_id = null;
+    private ?string $default_image;
+    /**
+     * @var false|mixed
+     */
+    private ?bool $take_over_login;
+
+    private ?string $take_over_login_secret;
 
     public function __construct()
     {
+        // General Options
         $this->is_network = is_plugin_active_for_network('wp-openid');
         $this->metadata_url = defined('WP_OPENID_METADATA_URL') ? WP_OPENID_METADATA_URL : ($this->is_network ? get_site_option('openid_metadata_url') : get_option('openid_metadata_url'));
         $this->client_id = defined('WP_OPENID_CLIENT_ID') ? WP_OPENID_CLIENT_ID : ($this->is_network ? get_site_option('openid_client_id') : get_option('openid_client_id'));
         $this->client_secret = defined('WP_OPENID_CLIENT_SECRET') ? WP_OPENID_CLIENT_SECRET : ($this->is_network ? get_site_option('openid_client_secret') : get_option('openid_client_secret'));
         $this->default_role = defined('WP_OPENID_DEFAULT_ROLE') ? WP_OPENID_DEFAULT_ROLE : ($this->is_network ? get_site_option('openid_default_role') : get_option('openid_default_role'));
+        $this->take_over_login = defined('WP_OPENID_TAKE_OVER_LOGIN') ? WP_OPENID_TAKE_OVER_LOGIN : ($this->is_network ? get_site_option('openid_take_over_login') : get_option('openid_take_over_login'));
+        $this->take_over_login_secret = defined('WP_OPENID_TAKE_OVER_LOGIN_SECRET') ? WP_OPENID_TAKE_OVER_LOGIN_SECRET : ($this->is_network ? get_site_option('openid_take_over_login_secret') : get_option('openid_take_over_login_secret'));
+
+        // Styling
+        if ($login_button_text = defined('WP_OPENID_LOGIN_BUTTON_TEXT') ? WP_OPENID_LOGIN_BUTTON_TEXT : ($this->is_network ? get_site_option('openid_login_button_text') : get_option('openid_login_button_text'))) {
+            $this->login_button_text = $login_button_text;
+        } else {
+            $this->login_button_text = 'Login with OpenID';
+        }
+
+        if ($login_separator_text = defined('WP_OPENID_LOGIN_SEPARATOR_TEXT') ? WP_OPENID_LOGIN_SEPARATOR_TEXT : ($this->is_network ? get_site_option('openid_login_separator_text') : get_option('openid_login_separator_text'))) {
+            $this->login_separator_text = $login_separator_text;
+        } else {
+            $this->login_separator_text = '--- or ---';
+        }
+
+        $this->default_image = plugins_url('assets/images/openid.svg', __FILE__);
+        if ($login_image_id = $this->is_network ? get_site_option('openid_login_image_id') : get_option('openid_login_image_id')) {
+            if ($login_image = wp_get_attachment_url($login_image_id)) {
+                $this->login_image_id = $login_image_id;
+                $this->login_image = $login_image;
+            } else {
+                $this->login_image = $this->default_image;
+            }
+        } else {
+            $this->login_image = $this->default_image;
+        }
+
+        // User Mapping
         if ($user_mapping = defined('WP_OPENID_USER_MAPPING') ? WP_OPENID_USER_MAPPING : ($this->is_network ? get_site_option('openid_user_mapping') : get_option('openid_user_mapping'))) {
             $this->user_mapping = $user_mapping;
         } else {
@@ -31,7 +78,6 @@ class OpenID
                 'nickname' => 'nickname',
             ];
         }
-
 
         $this->metadata = [];
 
@@ -65,22 +111,102 @@ class OpenID
         add_action('login_message', [$this, 'openid_login_page_button']);
         add_action('admin_init', [$this, 'admin_init']);
         add_action('admin_menu', [$this, 'admin_menu'], 99);
+        add_action('admin_enqueue_scripts', [$this, 'admin_enqueue_scripts']);
 
         register_deactivation_hook(__FILE__, [$this, 'deactivate']);
+
+        add_action('login_init', [$this, 'login_init']);
+    }
+
+    public function admin_enqueue_scripts($page): void
+    {
+        // If we are on the settings or options-general page, enqueue the scripts
+        if ($page === 'settings_page_openid') {
+            // Load the WordPress media scripts
+            wp_enqueue_media();
+
+            // Load the plugin scripts
+            wp_enqueue_script('openid-admin', plugins_url('assets/js/admin-image-select.js', __FILE__), ['jquery'], WP_OPENID_VERSION);
+        }
     }
 
     public function rest_api_init(): void
     {
         register_rest_route('openid', '/login', array(
             'methods' => 'GET',
-            'callback' => array($this, 'login_redirect'),
+            'callback' => [$this, 'login_redirect'],
         ));
 
         register_rest_route('openid', '/callback', array(
             'methods' => 'GET',
-            'callback' => array($this, 'login_callback'),
+            'callback' => [$this, 'login_callback'],
         ));
 
+        register_rest_route('openid', $this->take_over_login_secret, array(
+            'methods' => 'GET',
+            'callback' => [$this, 'login_fallback'],
+        ));
+    }
+
+    /**
+     * @throws Exception
+     */
+    public function login_fallback(): WP_REST_Response
+    {
+        // We want to set a cookie here, that will be checked in the login_init function. If the cookie exists
+        $hash = bin2hex(random_bytes(15));
+        $check = bin2hex(random_bytes(15));
+
+        // set a transient with the hash and check
+        set_transient('openid_login_fallback_' . $hash, compact('hash', 'check'), 3600);
+
+        // set a cookie with the hash
+        setcookie('openid_login_fallback', $hash, time() + 3600);
+        setcookie('openid_login_fallback_check', md5($hash . $check), time() + 3600);
+
+        $response = new WP_REST_Response();
+        $response->set_status(302);
+        $response->header('Location', wp_login_url());
+        return $response;
+    }
+
+    public function login_init(): void
+    {
+        // If we are "taking over" the login page, we need to disable the default login form and only show ours.
+        // This is easily achieved by taking over the login_form_login action, rendering the header (where our form is) and then exiting.
+
+        // We also need to check to see if they have come from the fallback URL, and if so - we need to set the take_over_login to false
+        // so that the default login form is shown.
+
+
+        if ($this->take_over_login && isset($_COOKIE['openid_login_fallback']) && isset($_COOKIE['openid_login_fallback_check'])) {
+
+            // If we have the cookie, we need to check the transient to see if it is valid.
+            $transient = get_transient('openid_login_fallback_' . $_COOKIE['openid_login_fallback']);
+
+            // If the transient exists, and the hash matches, and the check matches, we can disable the take-over login
+            if ($transient && $transient['hash'] === $_COOKIE['openid_login_fallback'] && md5($transient['hash'] . $transient['check']) === $_COOKIE['openid_login_fallback_check']) {
+                $this->take_over_login = false;
+
+                // Let's also add a message to the login form, to let the user know they have used the fallback URL.
+                add_filter('login_message', function () {
+                    return '</br><div id="login_error">You have used the Fallback URL to enable the password form. This will be reverted in one hour and is only visible to you.</div>';
+                });
+            }
+        }
+
+        if ($this->take_over_login) {
+            // Because we hook login_message to show our button, we can just show the default header and footer, ignoring
+            // everything else in the login page.
+            login_header(__('Log In'));
+            login_footer();
+
+            // We exit here, to prevent the default login form from being shown.
+            exit();
+        }
+
+        // If we are not taking over the login page, we can just return here, and the default login form will be shown.
+        // Which uses the login_message to show our button!
     }
 
     /**
@@ -287,7 +413,7 @@ class OpenID
             ?>
             <style>
                 .openid-logo {
-                    background-image: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgeG1sbnM6c3ZnPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIgogICB2ZXJzaW9uPSIxLjAiCiAgIHdpZHRoPSIzMjAiCiAgIGhlaWdodD0iMTIwIgogICB2aWV3Qm94PSIwIDAgNjQ0MCA4MzM0IgogICBpZD0ic3ZnMjExNCIKICAgeG1sOnNwYWNlPSJwcmVzZXJ2ZSI+PGRlZnMKICAgaWQ9ImRlZnMyMTI3Ij4KICAgIAogICAgCiAgICAKICAgIAogICAgCiAgICAKICAgIAogICAgCiAgPC9kZWZzPgogIAo8ZwogICB0cmFuc2Zvcm09Im1hdHJpeCg2OS40NSwwLDAsNjkuNDUsLTg3NTkuNDc2LC05ODkuMzk2OSkiCiAgIGlkPSJnMjE4OSI+PGcKICAgICB0cmFuc2Zvcm09Im1hdHJpeCgxLjAzMTgwN2UtMiwwLDAsMS4wMzE4MDdlLTIsMTQzLjM2MjEsLTkwLjkxNTM3KSIKICAgICBpZD0iZzIyMDIiPjxwYXRoCiAgICAgICBkPSJNIC0zNDM2LjgsMTQ1NDMuMiBDIC00Mjg0LjgsMTQwMTUuMiAtNTQ2OC44LDEzNjg3LjIgLTY3NjQuOCwxMzY4Ny4yIEMgLTkzNzIuOCwxMzY4Ny4yIC0xMTQ4NC44LDE0OTkxLjIgLTExNDg0LjgsMTY1OTkuMiBDIC0xMTQ4NC44LDE4MDcxLjIgLTk3MjQuOCwxOTI3OS4yIC03NDQ0LjgsMTk0ODcuMiBMIC03NDQ0LjgsMTg2MzkuMiBDIC04OTgwLjgsMTg0NDcuMiAtMTAxMzIuOCwxNzYwNy4yIC0xMDEzMi44LDE2NTk5LjIgQyAtMTAxMzIuOCwxNTQ1NS4yIC04NjI4LjgsMTQ1MTkuMiAtNjc2NC44LDE0NTE5LjIgQyAtNTgzNi44LDE0NTE5LjIgLTQ5OTYuOCwxNDc1MS4yIC00Mzg4LjgsMTUxMjcuMiBMIC01MjUyLjgsMTU2NjMuMiBMIC0yNTU2LjgsMTU2NjMuMiBMIC0yNTU2LjgsMTM5OTkuMiBMIC0zNDM2LjgsMTQ1NDMuMiB6ICIKICAgICAgIHN0eWxlPSJmaWxsOiNjY2M7ZmlsbC1vcGFjaXR5OjEiCiAgICAgICBpZD0icGF0aDIyMDQiIC8+PHBhdGgKICAgICAgIGQ9Ik0gLTc0NDQuOCwxMjI0Ny4yIEwgLTc0NDQuOCwxODYzOS4yIEwgLTc0NDQuOCwxOTQ4Ny4yIEwgLTYwOTIuOCwxODYzOS4yIEwgLTYwOTIuOCwxMTM3NS4yIEwgLTc0NDQuOCwxMjI0Ny4yIHogIgogICAgICAgc3R5bGU9ImZpbGw6I2ZmNjIwMDtmaWxsLW9wYWNpdHk6MSIKICAgICAgIGlkPSJwYXRoMjIwNiIgLz48L2c+PGcKICAgICB0cmFuc2Zvcm09Im1hdHJpeCgxLjM3NzUyMWUtMiwwLDAsMS4zNzc1MjFlLTIsMTQyLjMyMDgsLTEzNS43MTMxKSIKICAgICBpZD0iZzIyMDgiPjxwYXRoCiAgICAgICBkPSJNIC0xMTI0LjgsMTUzNDMuMiBDIC0xMDYwLjgsMTUxMTkuMiAtOTU2LjgsMTQ5MjcuMiAtODIwLjgsMTQ3NTkuMiBDIC02NzYuOCwxNDU5MS4yIC01MDguOCwxNDQ1NS4yIC0zMDAuOCwxNDM1OS4yIEMgLTkyLjgsMTQyNTUuMiAxNDcuMiwxNDIwNy4yIDQxOS4yLDE0MjA3LjIgQyA2OTkuMiwxNDIwNy4yIDkzOS4yLDE0MjU1LjIgMTE0Ny4yLDE0MzU5LjIgQyAxMzQ3LjIsMTQ0NTUuMiAxNTIzLjIsMTQ1OTEuMiAxNjU5LjIsMTQ3NTkuMiBDIDE3OTUuMiwxNDkyNy4yIDE4OTkuMiwxNTExOS4yIDE5NjMuMiwxNTM0My4yIEMgMjAzNS4yLDE1NTU5LjIgMjA2Ny4yLDE1NzkxLjIgMjA2Ny4yLDE2MDMxLjIgQyAyMDY3LjIsMTYyNzEuMiAyMDM1LjIsMTY1MDMuMiAxOTYzLjIsMTY3MjcuMiBDIDE4OTkuMiwxNjk0My4yIDE3OTUuMiwxNzEzNS4yIDE2NTkuMiwxNzMwMy4yIEMgMTUyMy4yLDE3NDcxLjIgMTM0Ny4yLDE3NjA3LjIgMTE0Ny4yLDE3NzAzLjIgQyA5MzkuMiwxNzgwNy4yIDY5OS4yLDE3ODU1LjIgNDE5LjIsMTc4NTUuMiBDIDE0Ny4yLDE3ODU1LjIgLTkyLjgsMTc4MDcuMiAtMzAwLjgsMTc3MDMuMiBDIC01MDguOCwxNzYwNy4yIC02NzYuOCwxNzQ3MS4yIC04MjAuOCwxNzMwMy4yIEMgLTk1Ni44LDE3MTM1LjIgLTEwNjAuOCwxNjk0My4yIC0xMTI0LjgsMTY3MjcuMiBDIC0xMTk2LjgsMTY1MDMuMiAtMTIyOC44LDE2MjcxLjIgLTEyMjguOCwxNjAzMS4yIEMgLTEyMjguOCwxNTc5MS4yIC0xMTk2LjgsMTU1NTkuMiAtMTEyNC44LDE1MzQzLjIgTSAtODIwLjgsMTY1OTkuMiBDIC03NzIuOCwxNjc4My4yIC02OTIuOCwxNjk0My4yIC01ODAuOCwxNzA5NS4yIEMgLTQ3Ni44LDE3MjM5LjIgLTM0MC44LDE3MzUxLjIgLTE3Mi44LDE3NDQ3LjIgQyAtNC44LDE3NTM1LjIgMTg3LjIsMTc1NzUuMiA0MTkuMiwxNzU3NS4yIEMgNjUxLjIsMTc1NzUuMiA4NTEuMiwxNzUzNS4yIDEwMTkuMiwxNzQ0Ny4yIEMgMTE4Ny4yLDE3MzUxLjIgMTMxNS4yLDE3MjM5LjIgMTQyNy4yLDE3MDk1LjIgQyAxNTMxLjIsMTY5NDMuMiAxNjExLjIsMTY3ODMuMiAxNjU5LjIsMTY1OTkuMiBDIDE3MDcuMiwxNjQxNS4yIDE3MzkuMiwxNjIyMy4yIDE3MzkuMiwxNjAzMS4yIEMgMTczOS4yLDE1ODM5LjIgMTcwNy4yLDE1NjU1LjIgMTY1OS4yLDE1NDcxLjIgQyAxNjExLjIsMTUyODcuMiAxNTMxLjIsMTUxMTkuMiAxNDI3LjIsMTQ5NzUuMiBDIDEzMTUuMiwxNDgzMS4yIDExODcuMiwxNDcxMS4yIDEwMTkuMiwxNDYyMy4yIEMgODUxLjIsMTQ1MzUuMiA2NTEuMiwxNDQ5NS4yIDQxOS4yLDE0NDk1LjIgQyAxODcuMiwxNDQ5NS4yIC00LjgsMTQ1MzUuMiAtMTcyLjgsMTQ2MjMuMiBDIC0zNDAuOCwxNDcxMS4yIC00NzYuOCwxNDgzMS4yIC01ODAuOCwxNDk3NS4yIEMgLTY5Mi44LDE1MTE5LjIgLTc3Mi44LDE1Mjg3LjIgLTgyMC44LDE1NDcxLjIgQyAtODY4LjgsMTU2NTUuMiAtODkyLjgsMTU4MzkuMiAtODkyLjgsMTYwMzEuMiBDIC04OTIuOCwxNjIyMy4yIC04NjguOCwxNjQxNS4yIC04MjAuOCwxNjU5OS4yIHogIgogICAgICAgc3R5bGU9ImZpbGw6I2ZmNjIwMDtmaWxsLW9wYWNpdHk6MSIKICAgICAgIGlkPSJwYXRoMjIxMCIgLz48cGF0aAogICAgICAgZD0iTSAyNTYzLjIsMTUyNTUuMiBMIDI1NjMuMiwxNTczNS4yIEwgMjU3MS4yLDE1NzM1LjIgQyAyNjQzLjIsMTU1NTkuMiAyNzYzLjIsMTU0MjMuMiAyOTIzLjIsMTUzMjcuMiBDIDMwODMuMiwxNTIzMS4yIDMyNjcuMiwxNTE4My4yIDM0NzUuMiwxNTE4My4yIEMgMzY2Ny4yLDE1MTgzLjIgMzgzNS4yLDE1MjE1LjIgMzk3OS4yLDE1Mjg3LjIgQyA0MTIzLjIsMTUzNTkuMiA0MjQzLjIsMTU0NTUuMiA0MzM5LjIsMTU1ODMuMiBDIDQ0MjcuMiwxNTcwMy4yIDQ0OTkuMiwxNTg0Ny4yIDQ1NDcuMiwxNjAwNy4yIEMgNDU5NS4yLDE2MTY3LjIgNDYxOS4yLDE2MzQzLjIgNDYxOS4yLDE2NTE5LjIgQyA0NjE5LjIsMTY3MDMuMiA0NTk1LjIsMTY4NzEuMiA0NTQ3LjIsMTcwMzEuMiBDIDQ0OTkuMiwxNzE5MS4yIDQ0MjcuMiwxNzMzNS4yIDQzMzkuMiwxNzQ1NS4yIEMgNDI0My4yLDE3NTgzLjIgNDEyMy4yLDE3Njc5LjIgMzk3OS4yLDE3NzUxLjIgQyAzODM1LjIsMTc4MTUuMiAzNjY3LjIsMTc4NTUuMiAzNDc1LjIsMTc4NTUuMiBDIDMzNzkuMiwxNzg1NS4yIDMyOTEuMiwxNzgzOS4yIDMxOTUuMiwxNzgyMy4yIEMgMzEwNy4yLDE3Nzk5LjIgMzAxOS4yLDE3NzU5LjIgMjk0Ny4yLDE3NzE5LjIgQyAyODY3LjIsMTc2NzEuMiAyNzk1LjIsMTc2MTUuMiAyNzMxLjIsMTc1NDMuMiBDIDI2NzUuMiwxNzQ3OS4yIDI2MjcuMiwxNzM5OS4yIDI1OTUuMiwxNzMwMy4yIEwgMjU4Ny4yLDE3MzAzLjIgTCAyNTg3LjIsMTg3MTEuMiBMIDIyNzUuMiwxODcxMS4yIEwgMjI3NS4yLDE1MjU1LjIgTCAyNTYzLjIsMTUyNTUuMiBNIDQyNTkuMiwxNjEzNS4yIEMgNDIyNy4yLDE1OTk5LjIgNDE3OS4yLDE1ODg3LjIgNDExNS4yLDE1NzgzLjIgQyA0MDQzLjIsMTU2ODcuMiAzOTU1LjIsMTU1OTkuMiAzODUxLjIsMTU1MzUuMiBDIDM3NDcuMiwxNTQ3MS4yIDM2MjcuMiwxNTQ0Ny4yIDM0NzUuMiwxNTQ0Ny4yIEMgMzMwNy4yLDE1NDQ3LjIgMzE2My4yLDE1NDcxLjIgMzA1MS4yLDE1NTM1LjIgQyAyOTMxLjIsMTU1OTEuMiAyODQzLjIsMTU2NzEuMiAyNzcxLjIsMTU3NjcuMiBDIDI3MDcuMiwxNTg2My4yIDI2NTkuMiwxNTk4My4yIDI2MjcuMiwxNjExMS4yIEMgMjYwMy4yLDE2MjM5LjIgMjU4Ny4yLDE2Mzc1LjIgMjU4Ny4yLDE2NTE5LjIgQyAyNTg3LjIsMTY2NTUuMiAyNjAzLjIsMTY3ODMuMiAyNjM1LjIsMTY5MTEuMiBDIDI2NjcuMiwxNzAzOS4yIDI3MTUuMiwxNzE1OS4yIDI3ODcuMiwxNzI1NS4yIEMgMjg1OS4yLDE3MzU5LjIgMjk0Ny4yLDE3NDM5LjIgMzA1OS4yLDE3NTAzLjIgQyAzMTcxLjIsMTc1NjcuMiAzMzE1LjIsMTc1OTkuMiAzNDc1LjIsMTc1OTkuMiBDIDM2MjcuMiwxNzU5OS4yIDM3NDcuMiwxNzU2Ny4yIDM4NTEuMiwxNzUwMy4yIEMgMzk1NS4yLDE3NDM5LjIgNDA0My4yLDE3MzU5LjIgNDExNS4yLDE3MjU1LjIgQyA0MTc5LjIsMTcxNTkuMiA0MjI3LjIsMTcwMzkuMiA0MjU5LjIsMTY5MTEuMiBDIDQyOTEuMiwxNjc4My4yIDQzMDcuMiwxNjY1NS4yIDQzMDcuMiwxNjUxOS4yIEMgNDMwNy4yLDE2MzkxLjIgNDI5MS4yLDE2MjYzLjIgNDI1OS4yLDE2MTM1LjIgeiAiCiAgICAgICBzdHlsZT0iZmlsbDojZmY2MjAwO2ZpbGwtb3BhY2l0eToxIgogICAgICAgaWQ9InBhdGgyMjEyIiAvPjxwYXRoCiAgICAgICBkPSJNIDUxMzkuMiwxNjk1MS4yIEMgNTE3MS4yLDE3MDcxLjIgNTIxOS4yLDE3MTc1LjIgNTI5MS4yLDE3MjcxLjIgQyA1MzU1LjIsMTczNjcuMiA1NDQzLjIsMTc0NDcuMiA1NTQ3LjIsMTc1MDMuMiBDIDU2NTEuMiwxNzU2Ny4yIDU3NzkuMiwxNzU5OS4yIDU5MjMuMiwxNzU5OS4yIEMgNjE0Ny4yLDE3NTk5LjIgNjMyMy4yLDE3NTQzLjIgNjQ1MS4yLDE3NDIzLjIgQyA2NTc5LjIsMTczMDMuMiA2NjY3LjIsMTcxNTEuMiA2NzE1LjIsMTY5NTEuMiBMIDcwMjcuMiwxNjk1MS4yIEMgNjk2My4yLDE3MjM5LjIgNjg0My4yLDE3NDYzLjIgNjY2Ny4yLDE3NjE1LjIgQyA2NDkxLjIsMTc3NzUuMiA2MjQzLjIsMTc4NTUuMiA1OTIzLjIsMTc4NTUuMiBDIDU3MjMuMiwxNzg1NS4yIDU1NTUuMiwxNzgxNS4yIDU0MTEuMiwxNzc1MS4yIEMgNTI1OS4yLDE3Njc5LjIgNTE0Ny4yLDE3NTgzLjIgNTA1MS4yLDE3NDU1LjIgQyA0OTYzLjIsMTczMzUuMiA0ODkxLjIsMTcxOTEuMiA0ODUxLjIsMTcwMzEuMiBDIDQ4MDMuMiwxNjg3MS4yIDQ3ODcuMiwxNjcwMy4yIDQ3ODcuMiwxNjUxOS4yIEMgNDc4Ny4yLDE2MzUxLjIgNDgwMy4yLDE2MTkxLjIgNDg1MS4yLDE2MDMxLjIgQyA0ODkxLjIsMTU4NzEuMiA0OTYzLjIsMTU3MjcuMiA1MDUxLjIsMTU1OTkuMiBDIDUxNDcuMiwxNTQ3MS4yIDUyNTkuMiwxNTM3NS4yIDU0MTEuMiwxNTI5NS4yIEMgNTU1NS4yLDE1MjIzLjIgNTcyMy4yLDE1MTgzLjIgNTkyMy4yLDE1MTgzLjIgQyA2MTIzLjIsMTUxODMuMiA2Mjk5LjIsMTUyMjMuMiA2NDQzLjIsMTUzMDMuMiBDIDY1ODcuMiwxNTM4My4yIDY3MDcuMiwxNTQ5NS4yIDY3OTUuMiwxNTYyMy4yIEMgNjg4My4yLDE1NzU5LjIgNjk0Ny4yLDE1OTExLjIgNjk4Ny4yLDE2MDc5LjIgQyA3MDI3LjIsMTYyNDcuMiA3MDQzLjIsMTY0MjMuMiA3MDM1LjIsMTY1OTkuMiBMIDUwOTEuMiwxNjU5OS4yIEMgNTA5MS4yLDE2NzExLjIgNTEwNy4yLDE2ODMxLjIgNTEzOS4yLDE2OTUxLjIgTSA2NjY3LjIsMTYwMDcuMiBDIDY2MjcuMiwxNTg5NS4yIDY1NzEuMiwxNTc5OS4yIDY1MDcuMiwxNTcxOS4yIEMgNjQzNS4yLDE1NjM5LjIgNjM1NS4yLDE1NTY3LjIgNjI1OS4yLDE1NTE5LjIgQyA2MTU1LjIsMTU0NzEuMiA2MDUxLjIsMTU0NDcuMiA1OTIzLjIsMTU0NDcuMiBDIDU3OTUuMiwxNTQ0Ny4yIDU2ODMuMiwxNTQ3MS4yIDU1ODcuMiwxNTUxOS4yIEMgNTQ5MS4yLDE1NTY3LjIgNTQwMy4yLDE1NjM5LjIgNTMzOS4yLDE1NzE5LjIgQyA1MjY3LjIsMTU3OTkuMiA1MjExLjIsMTU4OTUuMiA1MTcxLjIsMTYwMDcuMiBDIDUxMzEuMiwxNjExMS4yIDUxMDcuMiwxNjIyMy4yIDUwOTEuMiwxNjM0My4yIEwgNjcyMy4yLDE2MzQzLjIgQyA2NzIzLjIsMTYyMjMuMiA2Njk5LjIsMTYxMTEuMiA2NjY3LjIsMTYwMDcuMiB6ICIKICAgICAgIHN0eWxlPSJmaWxsOiNmZjYyMDA7ZmlsbC1vcGFjaXR5OjEiCiAgICAgICBpZD0icGF0aDIyMTQiIC8+PHBhdGgKICAgICAgIGQ9Ik0gNzQ5OS4yLDE1MjU1LjIgTCA3NDk5LjIsMTU2ODcuMiBMIDc1MDcuMiwxNTY4Ny4yIEMgNzU3MS4yLDE1NTM1LjIgNzY3NS4yLDE1NDE1LjIgNzgyNy4yLDE1MzE5LjIgQyA3OTcxLjIsMTUyMzEuMiA4MTM5LjIsMTUxODMuMiA4MzIzLjIsMTUxODMuMiBDIDg0OTkuMiwxNTE4My4yIDg2NDMuMiwxNTIwNy4yIDg3NjMuMiwxNTI0Ny4yIEMgODg4My4yLDE1Mjk1LjIgODk3OS4yLDE1MzU5LjIgOTA1MS4yLDE1NDQ3LjIgQyA5MTIzLjIsMTU1MjcuMiA5MTcxLjIsMTU2MzEuMiA5MjAzLjIsMTU3NTEuMiBDIDkyMzUuMiwxNTg3MS4yIDkyNDMuMiwxNjAwNy4yIDkyNDMuMiwxNjE1OS4yIEwgOTI0My4yLDE3NzgzLjIgTCA4OTM5LjIsMTc3ODMuMiBMIDg5MzkuMiwxNjIwNy4yIEMgODkzOS4yLDE2MDk1LjIgODkzMS4yLDE1OTk5LjIgODkwNy4yLDE1OTAzLjIgQyA4ODkxLjIsMTU4MTUuMiA4ODUxLjIsMTU3MzUuMiA4ODAzLjIsMTU2NjMuMiBDIDg3NTUuMiwxNTU5MS4yIDg2OTEuMiwxNTU0My4yIDg2MDMuMiwxNTUwMy4yIEMgODUyMy4yLDE1NDYzLjIgODQxOS4yLDE1NDQ3LjIgODI5OS4yLDE1NDQ3LjIgQyA4MTcxLjIsMTU0NDcuMiA4MDU5LjIsMTU0NjMuMiA3OTYzLjIsMTU1MTEuMiBDIDc4NjcuMiwxNTU1MS4yIDc3ODcuMiwxNTYxNS4yIDc3MjMuMiwxNTY4Ny4yIEMgNzY1MS4yLDE1NzY3LjIgNzYwMy4yLDE1ODU1LjIgNzU2My4yLDE1OTY3LjIgQyA3NTIzLjIsMTYwNzEuMiA3NTA3LjIsMTYxODMuMiA3NDk5LjIsMTYzMTEuMiBMIDc0OTkuMiwxNzc4My4yIEwgNzE5NS4yLDE3NzgzLjIgTCA3MTk1LjIsMTUyNTUuMiBMIDc0OTkuMiwxNTI1NS4yIHogIgogICAgICAgc3R5bGU9ImZpbGw6I2ZmNjIwMDtmaWxsLW9wYWNpdHk6MSIKICAgICAgIGlkPSJwYXRoMjIxNiIgLz48cGF0aAogICAgICAgZD0iTSA5ODM1LjIsMTQyODcuMiBMIDk4MzUuMiwxNzc4My4yIEwgOTUwNy4yLDE3NzgzLjIgTCA5NTA3LjIsMTQyODcuMiBMIDk4MzUuMiwxNDI4Ny4yIHogIgogICAgICAgc3R5bGU9ImZpbGw6I2ZmNjIwMDtmaWxsLW9wYWNpdHk6MSIKICAgICAgIGlkPSJwYXRoMjIxOCIgLz48cGF0aAogICAgICAgZD0iTSAxMTI5OS4yLDE0Mjg3LjIgQyAxMTgzNS4yLDE0Mjk1LjIgMTIyMzUuMiwxNDQ0Ny4yIDEyNTA3LjIsMTQ3MzUuMiBDIDEyNzcxLjIsMTUwMjMuMiAxMjkwNy4yLDE1NDU1LjIgMTI5MDcuMiwxNjAzMS4yIEMgMTI5MDcuMiwxNjYxNS4yIDEyNzcxLjIsMTcwNDcuMiAxMjUwNy4yLDE3MzM1LjIgQyAxMjIzNS4yLDE3NjIzLjIgMTE4MzUuMiwxNzc2Ny4yIDExMjk5LjIsMTc3ODMuMiBMIDEwMDkxLjIsMTc3ODMuMiBMIDEwMDkxLjIsMTQyODcuMiBMIDExMjk5LjIsMTQyODcuMiBNIDExMTM5LjIsMTc0OTUuMiBDIDExMzg3LjIsMTc0OTUuMiAxMTYwMy4yLDE3NDcxLjIgMTE3ODcuMiwxNzQxNS4yIEMgMTE5NjMuMiwxNzM1OS4yIDEyMTE1LjIsMTcyNzkuMiAxMjIzNS4yLDE3MTU5LjIgQyAxMjM0Ny4yLDE3MDM5LjIgMTI0MzUuMiwxNjg4Ny4yIDEyNDkxLjIsMTY3MDMuMiBDIDEyNTQ3LjIsMTY1MTkuMiAxMjU3MS4yLDE2Mjk1LjIgMTI1NzEuMiwxNjAzMS4yIEMgMTI1NzEuMiwxNTc3NS4yIDEyNTQ3LjIsMTU1NTEuMiAxMjQ5MS4yLDE1MzY3LjIgQyAxMjQzNS4yLDE1MTc1LjIgMTIzNDcuMiwxNTAyMy4yIDEyMjM1LjIsMTQ5MTEuMiBDIDEyMTE1LjIsMTQ3OTEuMiAxMTk2My4yLDE0NzAzLjIgMTE3ODcuMiwxNDY1NS4yIEMgMTE2MDMuMiwxNDU5OS4yIDExMzg3LjIsMTQ1NjcuMiAxMTEzOS4yLDE0NTY3LjIgTCAxMDQyNy4yLDE0NTY3LjIgTCAxMDQyNy4yLDE3NDk1LjIgTCAxMTEzOS4yLDE3NDk1LjIgeiAiCiAgICAgICBzdHlsZT0iZmlsbDojZmY2MjAwO2ZpbGwtb3BhY2l0eToxIgogICAgICAgaWQ9InBhdGgyMjIwIiAvPjwvZz48L2c+PC9zdmc+);
+                    background-image: url("<?php echo esc_url($this->login_image); ?>");
                     overflow: hidden;
                     background-position: 45% 45%;
                     background-repeat: no-repeat;
@@ -300,26 +426,50 @@ class OpenID
                 <div class="openid-logo"></div>
                 <a href="<?php echo esc_url(rest_url('/openid/login')); ?>" class="button">
                     <?php printf(
-                        esc_html__('Log In with %s', 'openid'),
-                        esc_html('OpenID')
+                        esc_html__($this->login_button_text, 'openid')
                     ); ?>
                 </a>
             </form>
-            <p style="margin-top: 20px; text-align: center;">
-                <?php esc_html_e('--- or ---', 'openid'); ?>
-            </p>
+
             <?php
+            if (!$this->take_over_login) {
+                // If we are not taking over the login page, we can display the separator text
+                ?>
+                <p style="margin-top: 20px; text-align: center;">
+                    <?php esc_html_e($this->login_separator_text, 'openid'); ?>
+                </p>
+                <?php
+            }
         }
     }
 
+    /**
+     * @throws Exception
+     */
     public function admin_init(): void
     {
+        // General options
         register_setting('openid', 'openid_metadata_url');
         register_setting('openid', 'openid_client_id');
         register_setting('openid', 'openid_client_secret');
         register_setting('openid', 'openid_default_role');
         register_setting('openid', 'openid_user_mapping');
 
+        // Styling options
+        register_setting('openid', 'openid_login_button_text');
+        register_setting('openid', 'openid_login_separator_text');
+        register_setting('openid', 'openid_login_image_id');
+
+        // Advanced options
+        register_setting('openid', 'openid_take_over_login');
+        register_setting('openid', 'openid_take_over_login_secret');
+
+        // Set a random secret if we don't have one
+        // This secret is used to bypass the "take_over_login" check to ensure there is a way for admins to login,
+        // even if the OpenID provider is down or unavailable
+        if (!get_option('openid_take_over_login_secret')) {
+            update_option('openid_take_over_login_secret', bin2hex(random_bytes(32)));
+        }
 
         add_action('network_admin_edit_openid', [$this, 'save_settings']);
 
@@ -517,6 +667,7 @@ class OpenID
                         <td>
                             <code><?php echo esc_url(rest_url('/openid/login')); ?></code>
                         </td>
+                    </tr>
                 </table>
 
                 <h2 class="title">
@@ -610,13 +761,102 @@ class OpenID
                                     <?php endforeach; ?>
                                 </select>
                             </label>
-
                         </td>
                     </tr>
 
 
                     </tbody>
 
+                </table>
+
+                <h2 class="title">
+                    <?php esc_html_e('Step 6', 'openid'); ?>
+                </h2>
+                <p>
+                    Options for Style and Behavior.
+                </p>
+                <p>To keep your site secure from brute-force attempts, you can disable the default WordPress
+                    login page. If you enable this option, you can use the Fallback URL to access the default
+                    WordPress login function. Your Fallback URL should be kept secure! When you hit it, the password
+                    form will be enabled for 1 hour, for your browser session.</p>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">Hide Default Login Form</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="openid_take_over_login"
+                                    <?php echo esc_attr(defined('WP_OPENID_TAKE_OVER_LOGIN') ? ' disabled readonly' : ''); ?>
+                                       value="1"<?php checked($this->take_over_login); ?>>
+                                <?php esc_html_e('Hide the default WordPress login form.', 'openid'); ?>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <?php esc_html_e('Fallback URL', 'openid'); ?>
+                        </th>
+                        <td>
+                            <code>
+                                <?php echo esc_url(rest_url('/openid/' . $this->take_over_login_secret)); ?>
+                            </code>
+                            <input type="hidden" name="openid_take_over_login_secret"
+                                   value="<?php echo esc_attr(get_option('openid_take_over_login_secret')); ?>">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <?php esc_html_e('Login Button Text', 'openid'); ?>
+                        </th>
+                        <td>
+                            <label>
+                                <input type="text" name="openid_login_button_text"
+                                       value="<?php echo esc_attr($this->login_button_text); ?>"
+                                       size="40"<?php echo esc_attr(defined('WP_OPENID_LOGIN_BUTTON_TEXT') ? ' disabled readonly' : ''); ?>>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <?php esc_html_e('Login Separator Text', 'openid'); ?>
+                        </th>
+                        <td>
+                            <label>
+                                <input type="text" name="openid_login_separator_text"
+                                       value="<?php echo esc_attr($this->login_separator_text); ?>"
+                                       size="40"<?php echo esc_attr(defined('WP_OPENID_LOGIN_SEPARATOR_TEXT') ? ' disabled readonly' : ''); ?>>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <?php esc_html_e('Login Page Image', 'openid'); ?>
+                        </th>
+                        <td>
+                            <table>
+                                <tr>
+                                    <td>
+                                        <img id="openid_image_preview"
+                                             src="<?php echo esc_url($this->login_image); ?>"
+                                             style="max-width: 150px; height: auto;" alt="Login page image"
+                                             data-default-image="<?php echo esc_url($this->default_image); ?>"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <input type="hidden" name="openid_login_image_id" id="openid_login_image_id"
+                                               value="<?php echo esc_attr($this->login_image_id); ?>"
+                                               class="regular-text"/>
+                                        <input type='button' class="button-primary"
+                                               value="<?php esc_attr_e('Select Image', 'openid'); ?>"
+                                               id="openid_media_manager"/>
+                                        <input type='button' class="button-link-delete"
+                                               value="<?php esc_attr_e('Remove Image', 'openid'); ?>"
+                                               id="openid_remove_image"/>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
                 </table>
 
                 <?php submit_button(); ?>
