@@ -141,63 +141,36 @@ class OpenID
             'methods' => 'GET',
             'callback' => [$this, 'login_callback'],
         ));
-
-        register_rest_route('openid', $this->take_over_login_secret, array(
-            'methods' => 'GET',
-            'callback' => [$this, 'login_fallback'],
-        ));
-    }
-
-    /**
-     * @throws Exception
-     */
-    public function login_fallback(): WP_REST_Response
-    {
-        // We want to set a cookie here, that will be checked in the login_init function. If the cookie exists
-        $hash = bin2hex(random_bytes(15));
-        $check = bin2hex(random_bytes(15));
-
-        // set a transient with the hash and check
-        set_transient('openid_login_fallback_' . $hash, compact('hash', 'check'), 3600);
-
-        // set a cookie with the hash
-        setcookie('openid_login_fallback', $hash, time() + 3600);
-        setcookie('openid_login_fallback_check', md5($hash . $check), time() + 3600);
-
-        $response = new WP_REST_Response();
-        $response->set_status(302);
-        $response->header('Location', wp_login_url());
-        return $response;
     }
 
     public function login_init(): void
     {
         // We don't want to get in the way of the logout function.
-        if(isset($_REQUEST['action']) && $_REQUEST['action'] === 'logout'){
+        if (isset($_REQUEST['action']) && $_REQUEST['action'] === 'logout') {
             return;
         }
 
         // If we are "taking over" the login page, we need to disable the default login form and only show ours.
-        // This is easily achieved by taking over the login_form_login action, rendering the header (where our form is) and then exiting.
+        // This is easily achieved by taking over the login_init action, rendering the header (where our form is shown) and then exiting.
 
-        // We also need to check to see if they have come from the fallback URL, and if so - we need to set the take_over_login to false
-        // so that the default login form is shown.
+        // We also need to check to see if they have the fallback query string, and if so, disable the take_over_login functionality.
+        if (isset($_REQUEST['fallback']) && $_REQUEST['fallback'] === $this->take_over_login_secret) {
+            // We need to disable the take_over_login functionality.
+            $this->take_over_login = false;
 
+            // We add a filter on set_url_scheme to change the login_post and login url to the fallback URL.
+            // This is so that the login form will post to the fallback URL, and we can disable the take_over_login functionality.
+            add_filter('site_url', function ($url, $scheme, $orig_scheme) {
+                if ($orig_scheme === 'login_post' || $orig_scheme === 'login') {
+                    return add_query_arg('fallback', $this->take_over_login_secret, $url);
+                }
+                return $url;
+            }, 10, 3);
 
-        if ($this->take_over_login && isset($_COOKIE['openid_login_fallback']) && isset($_COOKIE['openid_login_fallback_check'])) {
-
-            // If we have the cookie, we need to check the transient to see if it is valid.
-            $transient = get_transient('openid_login_fallback_' . $_COOKIE['openid_login_fallback']);
-
-            // If the transient exists, and the hash matches, and the check matches, we can disable the take-over login
-            if ($transient && $transient['hash'] === $_COOKIE['openid_login_fallback'] && md5($transient['hash'] . $transient['check']) === $_COOKIE['openid_login_fallback_check']) {
-                $this->take_over_login = false;
-
-                // Let's also add a message to the login form, to let the user know they have used the fallback URL.
-                add_filter('login_message', function () {
-                    return '</br><div id="login_error">You have used the Fallback URL to enable the password form. This will be reverted in one hour and is only visible to you.</div>';
-                });
-            }
+            // Let's also add a message to the login form, to let the user know they have used the fallback URL.
+            add_filter('login_message', function () {
+                return '</br><div id="login_error">You have used the Fallback URL to enable the password form. This is only visible for you.</div>';
+            });
         }
 
         if ($this->take_over_login) {
@@ -206,7 +179,7 @@ class OpenID
             login_header(__('Log In'));
             login_footer();
 
-            // We exit here, to prevent the default login form from being shown.
+            // We exit here, to prevent the default login form from being shown. This also prevents the form being submitted.
             exit();
         }
 
@@ -246,7 +219,7 @@ class OpenID
     public function login_callback(): WP_REST_Response
     {
         if (!$state = $this->_get_oauth_state()) {
-            die("state not found2");
+            die("state not found");
         }
 
         // Check the state
@@ -478,7 +451,7 @@ class OpenID
 
         add_action('network_admin_edit_openid', [$this, 'save_settings']);
 
-        add_filter('plugin_action_links_wp-openid/wp-openid.php', function($links) {
+        add_filter('plugin_action_links_wp-openid/wp-openid.php', function ($links) {
             $links[] = sprintf(
                 '<a href="%s">%s</a>',
                 esc_url($this->is_network ? network_admin_url('settings.php?page=openid') : admin_url('options-general.php?page=openid')),
@@ -769,8 +742,6 @@ class OpenID
                             </label>
                         </td>
                     </tr>
-
-
                     </tbody>
 
                 </table>
@@ -803,7 +774,7 @@ class OpenID
                         </th>
                         <td>
                             <code>
-                                <?php echo esc_url(rest_url('/openid/' . $this->take_over_login_secret)); ?>
+                                <?php echo esc_url(add_query_arg('fallback', $this->take_over_login_secret, wp_login_url())); ?>
                             </code>
                             <input type="hidden" name="openid_take_over_login_secret"
                                    value="<?php echo esc_attr(get_option('openid_take_over_login_secret')); ?>">
