@@ -172,6 +172,11 @@ class OpenID
 
     public function login_init(): void
     {
+        // We don't want to get in the way of the logout function.
+        if(isset($_REQUEST['action']) && $_REQUEST['action'] === 'logout'){
+            return;
+        }
+
         // If we are "taking over" the login page, we need to disable the default login form and only show ours.
         // This is easily achieved by taking over the login_form_login action, rendering the header (where our form is) and then exiting.
 
